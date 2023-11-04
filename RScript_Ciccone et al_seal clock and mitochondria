@@ -1,0 +1,536 @@
+#### Script to attach to submission Ciccone et al. 
+
+####Required packages
+library(card)
+library(cosinor)
+library(cosinor2)
+library(maptools)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(factoextra)
+library(FactoMineR)
+library(readxl)
+
+##Data filtering and analysis
+
+##1 - cosinor analysis of diving beheviour
+
+#dive data 2007
+ #Define start time of dives, create a month column abd set sunrise and sunset
+dive7 <- read_excel("C:/HoodedDiving/dive7.xlsx")
+dive7=dive7[complete.cases(dive7),]
+ 
+
+dive7$START.DIVE <- as.POSIXct(dive7$DE_DATE - dive7$DIVE_DUR)
+dive7$Time <- format(dive7$START.DIVE, "%H:%M:%S")
+dive7$Time<- as.POSIXct(dive7$Time, format = "%H:%M:%S ")
+dive7$Time <- format(dive7$Time, format= "%H")
+dive7$Time <- gsub("00", "24", dive7$Time)
+dive7$Time<- as.numeric(dive7$Time)
+dive7$seasons <-format(dive7$START.DIVE, "%m")
+dive7$seasons<- as.numeric(dive7$seasons)
+
+dive7$sunrise<-sunriset((as.matrix(cbind(dive7$lon, dive7$lat))), dive7$START.DIVE, 
+                        direction ="sunrise")
+dive7$sunset<-sunriset((as.matrix(cbind(dive7$lon, dive7$lat))), dive7$START.DIVE, 
+                       direction ="sunset")
+dive7$sunrise<- format(as.POSIXct(dive7$sunrise*86400,origin = "1970-01-01", tz ="UTC"), format = "%H:%M:%S")
+dive7$sunset<- format(as.POSIXct(dive7$sunset*86400,origin = "1970-01-01", tz ="UTC"), format = "%H:%M:%S")
+
+
+#dive data 2008
+ #Define start time of dives, create a month column abd set sunrise and sunset
+dive8 <- read_excel("C:/HoodedDiving/dive8.xlsx")
+dive8=dive8[complete.cases(dive8),]
+
+dive8$START.DIVE <- as.POSIXct(dive8$DE_DATE - dive8$DIVE_DUR)
+dive8$Time <- format(dive8$START.DIVE, "%H:%M:%S")
+dive8$Time<- as.POSIXct(dive8$Time, format = "%H:%M:%S ")
+dive8$Time <- format(dive8$Time, format= "%H")
+dive8$Time <- gsub("00", "24", dive8$Time)
+dive8$Time<- as.numeric(dive8$Time)
+dive8$seasons <-format(dive8$START.DIVE, "%m")
+dive8$seasons<- as.numeric(dive8$seasons)
+
+dive8$sunrise<-sunriset((as.matrix(cbind(dive8$lon, dive8$lat))), dive8$START.DIVE, 
+                        direction ="sunrise")
+dive8$sunset<-sunriset((as.matrix(cbind(dive8$lon, dive8$lat))), dive8$START.DIVE, 
+                       direction ="sunset")
+dive8$sunrise<- format(as.POSIXct(dive8$sunrise*86400,origin = "1970-01-01", tz ="UTC"), format = "%H:%M:%S")
+dive8$sunset<- format(as.POSIXct(dive8$sunset*86400,origin = "1970-01-01", tz ="UTC"), format = "%H:%M:%S")
+ 
+ #cosinor analysis function
+dive_cosinor2 <- function(data, id, month){
+  dive <- data %>%
+    filter(ref==id)%>%
+    filter(seasons==month) %>%
+    filter(DIVE_DUR>120 & DIVE_DUR<quantile(DIVE_DUR,0.95))
+  predict<-cosinor.lm((DIVE_DUR/60)~time(Time), period=24, data = dive)
+  model<- cosinor.detect(predict)
+  
+  dive$sunrise<- format(as.POSIXct(dive$sunrise, format= "%H:%M:%S"), format= "1970-01-01 %H:%M:%S")
+  dive$sunrise<-as.POSIXct(dive$sunrise) 
+  dive$sunrisehour <- format(dive$sunrise, format= "%H")
+  dive$sunrisehour<- as.numeric(dive$sunrisehour)
+  dive$sunset<- format(as.POSIXct(dive$sunset, format= "%H:%M:%S"), format= "1970-01-01 %H:%M:%S")
+  dive$sunset<-as.POSIXct(dive$sunset) 
+  dive$sunsethour <- format(dive$sunset, format= "%H")
+  dive$sunsethour<- as.numeric(dive$sunsethour)
+  
+  
+  plot<-ggplot_cosinor.lm(predict) +
+    geom_rect(data=dive, mapping = aes(x = NULL,y = NULL,xmax=sunrisehour, 
+                                       xmin=-Inf, ymin=-Inf, ymax=+Inf,
+                                       fill = sunrisehour), alpha=.02)+ 
+    scale_fill_gradient(low = "grey56", high = "grey80")+
+    new_scale_fill() +
+    geom_rect(data=dive, mapping = aes(x = NULL,y = NULL,xmax=+Inf, 
+                                       xmin=sunsethour, ymin=-Inf, ymax=+Inf,
+                                       fill=sunsethour), alpha=.03)+
+    scale_fill_gradient(low = "grey75", high = "grey56")+
+    geom_jitter(aes(Time, (DIVE_DUR/60)),size=4, data = dive)+ 
+    geom_line(colour="red", size=3)+
+    ggtitle(id, month)+
+    theme_classic()+theme(axis.text = element_text(size=60, colour="black"),
+                          axis.title.y.left = element_text(size = 65),
+                          axis.title.x = element_text(size=65),
+                          axis.text.x = element_text(angle = 60, vjust=.9, 
+                                                     hjust=.9, size=60),
+                          axis.ticks.length = unit(.5, "cm"),
+                          axis.ticks = element_line(colour = "black", size=2),
+                          strip.text.x = element_text(size=35),
+                          axis.line = element_line(colour = "black", size=2),
+                          legend.position = "none")+
+    scale_x_continuous(breaks=seq(1,25),expand = c(0,0)) +
+    ylim(2,20)+
+    ylab("Diving duration (min)") + xlab("Time of day")
+  
+  ggsave(plot,file="cosinor.pdf", width = 60, height = 45, units = "cm") 
+  
+  list<- list(model, plot)
+  
+  return(list)
+}
+
+##2 - hourly mean dive duration
+
+#filter for adult seal (ID) and dive duration (2<DIVE.DUR<0.95 percentile)
+dive7adults <- dive7 %>%
+  filter(ref %in% c("ct32-Mj98-07","ct32-M171-07"))%>%
+  filter(DIVE_DUR>120)%>%
+  filter(DIVE_DUR<quantile(DIVE_DUR,0.95))
+
+dive8adults <- dive8 %>%
+  filter(ref %in% c("ct32x-F150-08","ct32x-F110-08",
+                    "ct32x-F155-08","ct32x-F119-08",
+                    "ct32x-F147-08","ct32x-F154-08",
+                    "ct32x-F175-08","ct32x-F180-08",
+                    "ct32x-F93-08","ct32x-M225-08"))%>%
+  filter(DIVE_DUR>120)%>%
+  filter(DIVE_DUR<quantile(DIVE_DUR,0.95))
+
+ #calcluation of mean dive duration per hour
+hourmean7<-aggregate(dive7adults$DIVE.DUR, list(dive7adults$Time, dive7adults$seasons), FUN=mean)
+names(hourmean7)<-c("Hour", "Month","Diveduration")
+hourmean7
+
+hourmean8<-aggregate(dive8adults$DIVE_DUR, list(dive8adults$Time, dive8adults$seasons), FUN=mean)
+names(hourmean8)<-c("Hour", "Month","Diveduration")
+hourmean8
+ 
+ #plot
+ggplot(hourmean8, aes(Hour, Diveduration/60)) + 
+  geom_point(size=4) + facet_grid(.~Month)+
+  geom_point(data=hourmean7, aes(Hour, Diveduration/60), col="red", size=4)+
+  ylab("mean dive duration (min)")+ theme_bw() +
+  xlab("Time of day") +
+  scale_x_continuous(breaks=seq(from = 0, to = 24, by = 4))+
+  theme(axis.text = element_text(size=35, colour="black"),
+        axis.title.y.left = element_text(size = 50),
+        axis.title.x = element_text(size=50),
+        axis.ticks.length = unit(.5, "cm"),
+        axis.ticks = element_line(colour = "black", size=2),
+        strip.text.x = element_text(size=35),
+        axis.line = element_line(colour = "black", size=2))
+ggsave(file="hourlymean.pdf", width = 80, height = 30, units = "cm")
+
+##3 - arnlt and per2 expression
+norm=read.table("primers normoxia1.csv", header = TRUE, sep = ",", dec = ".")
+norm
+
+#3A - Per2 and Arntl mRNA expression under temperature cyle
+arntl=subset(norm, Probe %in% c ("ARNTL"))
+arntl
+arntl$Time<-as.POSIXct(arntl$Time,format= "%d/%m/%Y %H:%M")
+arntl$Time <- as.POSIXct(arntl$Time)
+tarntl= factor(arntl$Timepoint, levels = c("T1", "T2", "T3", "T4", "T5", "T6",
+                                           "T7", "T8", "T9", "T10", "T11", "T12"))
+ #Analysis
+a<-aov(Value~Timepoint, data = arntl)
+summary(a)
+TukeyHSD(a)
+
+per=subset(norm, Probe %in% c ("PER2"))
+per
+per$Time<-as.POSIXct(per$Time,format= "%d/%m/%Y %H:%M")
+per$Time <- as.POSIXct(per$Time)
+per
+tper= factor(per$Timepoint, levels = c("T1", "T2", "T3", "T4", "T5", "T6",
+                                       "T7", "T8", "T9", "T10", "T11", "T12"))
+ #Analysis                                       
+b<-aov(Value~Timepoint, data = per)
+summary(b)
+TukeyHSD(b)  
+
+ #Define double y axis to plot per2 and arntl together
+ylim.prim<- c(0,2)
+ylim.sec<-c(0,20)
+itmod<-lm(ylim.prim~ylim.sec)
+tmod<-lm(ylim.sec~ylim.prim)
+trans<-function(x)coef(tmod)[1] + coef(tmod)[2]*x
+invtrans<- function(x)coef(itmod)[1] + coef(itmod)[2]*x
+
+
+ #double plot
+h=ggplot(arntl, aes(Time,Mean, group=Probe)) + 
+  geom_line(col="blue", size=2)+ 
+  geom_point(size=4, col="blue") +
+  geom_errorbar(aes(ymax=Mean + SEM, ymin=Mean - SEM),
+                size=.9,width=2500, col="blue")+
+  geom_line(data = per, aes(Time, invtrans(Mean),
+                            group=Probe,colour="black"), size=2) +
+  geom_point(data = per, aes(Time, invtrans(Mean), colour="black"), size=4) +
+  geom_errorbar(data=per, aes(ymax=invtrans(Mean) + invtrans(SEM), 
+                              ymin=invtrans(Mean) - invtrans(SEM),
+                              width=2500, colour="black")) +
+  scale_x_datetime(date_breaks = "4 hour",
+                   limits = c(as_datetime("2021-01-21 05:00:00"),
+                              as_datetime("2021-01-23 03:30:00")))+ theme_classic()+
+  theme(axis.text = element_text(size=35),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust=0.5, size=50),
+        axis.title.x = element_blank(),
+        axis.title.y.right = element_text(size = 35),
+        axis.ticks.length = unit(.5, "cm"),
+        axis.ticks = element_line(colour = "black", size=2),
+        axis.line = element_line(colour = "black", size=2))+
+  scale_y_continuous(limits= c(0,2.5),
+                     sec.axis = sec_axis(~.*2))+
+  theme(legend.position = "none",
+        axis.text = element_text(size=30, colour="black"),
+        plot.title = element_text(hjust=0.5, size=40),
+        axis.title= element_blank(),
+        axis.ticks.length = unit(.5, "cm"),
+        axis.ticks = element_line(colour = "black"))+
+  scale_color_manual(values = c("black"),) 
+h
+ggsave(file="df cycle SEM.pdf",width = 40, height = 20, units = "cm")
+ 
+ #Analysis performe with JTK cycle - see (Hughes et al., 2010)
+
+#3B - Per2 and Arntl expression under constant temperature
+normc=read.table("primers normoxia const.csv", header = TRUE, sep = ",", dec = ".")
+normc
+
+carntl=subset(normc, Probe %in% c ("ARNTL"))
+tcarntl= factor(carntl$Timepoint, levels = c("T1", "T2", "T3", "T4", "T5", "T6",
+                                             "T7", "T8", "T9", "T10", "T11", "T12"))
+
+cper=subset(normc, Probe %in% c ("PER2"))
+tcper= factor(cper$Timepoint, levels = c("T1", "T2", "T3", "T4", "T5", "T6",
+                                         "T7", "T8", "T9", "T10", "T11", "T12"))
+
+ #Define double y axis to plot per2 and arntl together
+ylim.prim<- c(0,2)
+ylim.sec<-c(0,4)
+itmod<-lm(ylim.prim~ylim.sec)
+tmod<-lm(ylim.sec~ylim.prim)
+trans<-function(x)coef(tmod)[1] + coef(tmod)[2]*x
+invtrans<- function(x)coef(itmod)[1] + coef(itmod)[2]*x
+
+ggplot(carntl, aes(tcarntl,Mean, group=Probe)) +  
+  geom_line(col="blue", size=2)+ 
+  geom_point(size=4, col="blue") +
+  geom_errorbar(aes(ymax=Mean + SEM, ymin=Mean - SEM),
+                size=.9,width=.23, col="blue")+
+  geom_line(data = cper, aes(tcper, invtrans(Mean),
+                             group=Probe,colour="black"), size=2) +
+  geom_point(data = cper, aes(tcper, invtrans(Mean), colour="black"), size=4) +
+  geom_errorbar(data=cper, aes(ymax=invtrans(Mean) + invtrans(SEM), 
+                               ymin=invtrans(Mean) - invtrans(SEM),
+                               width=.23, colour="black")) +
+  ylim(0,2) + theme_classic() +
+  scale_x_discrete(labels=c(expression(ZT[1]), expression(ZT[5]), expression(ZT[9]), 
+                            expression(ZT[13]), expression(ZT[17]), expression(ZT[21]),
+                            expression(ZT[1]), expression(ZT[5]), expression(ZT[9]),
+                            expression(ZT[13]), expression(ZT[17]), expression(ZT[21]))) +
+  ylab("Arntl fold change (ddCT)")+ 
+  theme(axis.text = element_text(size=35, colour="black"),
+        axis.text.x = element_text( vjust=.9),
+        plot.title = element_text(hjust=0.5, size=50),
+        axis.title.x = element_blank(),
+        axis.title.y.right = element_text(size = 45),
+        axis.ticks.length = unit(.5, "cm"),
+        axis.ticks = element_line(colour = "black", size=2),
+        axis.line = element_line(colour = "black", size=2))+
+  scale_y_continuous(limits= c(0,2.5),
+                     sec.axis = sec_axis(~.*2,
+                                         name = "Per2 fold change (ddCT)"))+
+  theme(axis.title.y.right = element_text(size = 45), 
+        legend.position = "none",
+        axis.text = element_text(size=35, colour="black"),
+        axis.text.x = element_text( vjust=.9),
+        plot.title = element_text(hjust=0.5, size=45),
+        axis.title.x = element_blank(),
+        axis.title.y.left = element_text(size = 45, colour = "blue"),
+        axis.ticks.length = unit(.5, "cm"),
+        axis.ticks = element_line(colour = "black"))+
+  scale_color_manual(values = c("black"))
+ ggsave(file="df constant SEM.pdf",width = 40, height = 20, units = "cm")
+ 
+  #Analysis performe with JTK cycle - see (Hughes et al., 2010)
+ 
+#3C - Per2 and Arntl PMT recordings
+ pbfib=read.table("per2 and baml1.csv", header = TRUE, sep = ",", dec = ".")
+ pbfib 
+ 
+ pbfib2<-pbfib[-c(1:20,312:792),]
+ pbfib2
+ 
+ ylim.prim<- c(-800000,800000)
+ ylim.sec<-c(-20000, 20000)
+ itmod<-lm(ylim.prim~ylim.sec)
+ tmod<-lm(ylim.sec~ylim.prim)
+ trans<-function(x)coef(tmod)[1] + coef(tmod)[2]*x
+ invtrans<- function(x)coef(itmod)[1] + coef(itmod)[2]*x
+ 
+ library(scales)
+ 
+ pmt<-ggplot(pbfib2, aes(Time/1440, Bmal1/10000, group=1)) +
+   geom_line(size=3, aes(color="black"))+ theme_classic()  + 
+   geom_line(data = pbfib2, aes(Time/1440, invtrans(Per2/10000),group=1,colour="blue"), 
+             size=3) +
+   scale_y_continuous(limits= c(-80,80),labels = scales::comma,
+                      sec.axis = sec_axis(trans = trans,labels = scales::comma,
+                                          name ="Per2:luciferase\n Count/min/"~10^3))+
+   geom_vline(aes(xintercept=1), linetype=2)+
+   geom_vline(aes(xintercept=2), linetype=2)+
+   geom_vline(aes(xintercept=3), linetype=2)+
+   geom_hline(aes(yintercept=0))+
+   theme(axis.title.y.right = element_text(colour = "blue", size = 45), 
+         legend.position = "none",
+         axis.title.y.left = element_text(colour = "black", size=45),
+         axis.text = element_text(size=35, colour = "black"),
+         axis.title = element_text(size=40),
+         axis.ticks.length =unit(.5, "cm"),
+         axis.line = element_line(size=2))+
+   scale_color_manual(values = c("black","blue"))+ 
+   scale_x_continuous(expand = c(0,0), breaks = seq(from=1, to=3, by=1)) + 
+   xlab("Days") + ylab("Arntl:luciferase\n Count/min/"~10^3) 
+ 
+ pmt
+ ggsave(pmt,file="pmt.pdf", width = 40, height = 30, units = "cm")
+ 
+ #Analysis done in Graphpad prism 8
+ 
+#3D - Arntl expression in kidney and liver
+tissue=read.table("qPCR tissue arntl_Chiara.csv", header = TRUE, sep = ",", dec = ".")
+tissue
+
+tissue$ZT<- as.factor(tissue$ZT)
+
+tissue.summary <- aggregate(tissue$ZT18, list(tissue$Tissue, tissue$ZT), FUN=mean)
+tissue.summary
+names(tissue.summary)=c("Tissue","ZT","ZT18")
+tissue.summary
+tissue.sd<-aggregate(tissue$ZT18, list(tissue$Tissue, tissue$ZT), FUN=sd)
+tissue.sd$x<-as.numeric(tissue.sd$x)
+tissue.sd
+tissue.sd$sem<- tissue.sd$x/sqrt(c(3,2,3,3,3,3,3,3))
+tissue.sd
+
+ggplot(tissue,aes(ZT,ZT18)) +
+  geom_point(size=2, aes(color=ZT))+
+  geom_crossbar(data=tissue.summary, aes(ymin=ZT18, ymax=ZT18))+
+  geom_errorbar(data=tissue.summary, 
+                aes(ymax=ZT18 + tissue.sd$sem, ymin=ZT18 - tissue.sd$sem),
+                width=0, size=2)+
+  facet_grid(~Tissue, scales = "free")+
+  ylab("2^(-ddCT)")+ theme_bw() +
+  theme(axis.text = element_text(size=30, colour = "black"),
+        axis.title = element_text(size=35),
+        legend.position = "none" )
+
+ #Analysis
+liver<- tissue %>%
+  filter(Tissue=="Liver")
+liver
+liveranova<-aov(ZT18~ZT, data=liver)
+summary(liveranova)
+TukeyHSD(liveranova)
+
+kidney<- tissue %>%
+  filter(Tissue=="Kidney")
+kidney
+kidneyanova<-aov(ZT18~ZT, data=kidney)
+summary(kidneyanova)
+TukeyHSD(kidneyanova)
+
+##4 - clock gene expression rhythms and mitochondrial respiration 
+
+#4A - PCA analysis
+pcadata=read.table("pca data.csv", header = TRUE, sep = ",", dec = ".")
+pcadata
+rownames(pcadata)<-c("PML", "PMP", "CIP", "CICIIP", "CIIP", "CIIL", "CIIE")
+pcadata
+
+pca <-prcomp(t(pcadata), scale=TRUE)
+pca
+plot(pca$x[,1], pca$x[,2])
+
+pca.var <- pca$sdev^2
+pca.var.per <- round(pca.var/sum(pca.var)*100,1)
+barplot(pca.var.per, main="Scree Plot",
+        xlab="Principal Component", ylab="Percent Variation")
+
+pca.data <- data.frame(Sample=rownames(pca$x),
+                       X=pca$x[,1],
+                       Y=pca$x[,2])
+pca.data
+pca.data$ZT <- c("ZT1","ZT1","ZT1","ZT1",
+                 "ZT5","ZT5","ZT5","ZT5",
+                 "ZT9","ZT9","ZT9","ZT9",
+                 "ZT13","ZT13","ZT13","ZT13",
+                 "ZT17","ZT17","ZT17","ZT17",
+                 "ZT21","ZT21","ZT21", "ZT21")
+pca.data
+
+ggplot(data=pca.data, aes(x=X, y=Y, col=ZT, fill=ZT))+
+  geom_point(size=7)+
+  xlab(paste("PC1 - ", pca.var.per[1],"%", sep=""))+
+  ylab(paste("PC2 - ", pca.var.per[2],"%", sep=""))+
+  theme_bw()+
+  geom_hline(yintercept=0, linetype=2)+
+  geom_vline(xintercept=0, linetype=2) +
+  stat_ellipse(level = 0.80, geom = "polygon",
+               aes(col=ZT),
+               alpha = 0.1)+
+  theme(axis.text = element_text(size=30, colour = "black"),
+        axis.title = element_text(size=35),
+        axis.ticks.length = unit(.5, "cm"),
+        axis.ticks = element_line(colour = "black"),
+        legend.text = element_text(size=30))
+ggsave(file="pca zt.pdf", width = 50, height = 50, units = "cm")
+
+loading_scores<-pca$rotation[,1]
+zt_scores <- abs(loading_scores)
+zt_scores_ranked<-sort(zt_scores, decreasing = TRUE)
+top_zt<-names(zt_scores_ranked)
+top_zt
+
+#4B - cokplex I coupling efficiency across ZT
+oronorm=read.table("orojan ce norm.csv", header = TRUE, sep = ",", dec = ".")
+oronorm
+oronorm$ZT<- as.numeric(oronorm$ZT)
+oronorm
+ 
+ #calculation of OXPHOS coupling efficiency from RCR fro PML state
+pml_newzt<-oronorm %>%
+  filter(State=="PML")
+pml_newzt
+pml_newzt$efficiency<-(1-pml_newzt$X)
+pml_newzt
+
+pml.summary <- aggregate(pml_newzt$efficiency, list(pml_newzt$ZT), FUN=mean)
+pml.summary
+names(pml.summary)=c("ZT","efficiency")
+pml.summary
+pml.sd<-aggregate(pml_newzt$efficiency, list(pml_newzt$ZT), FUN=sd)
+pml.sd$x<-as.numeric(pml.sd$x)
+pml.sd
+pml.sd$sem<- pml.sd$x/sqrt(c(4,4,4,3,4,3))
+
+ggplot(data=pml_newzt, aes(ZT, efficiency)) +
+  geom_point(size=5)+ 
+  geom_crossbar(data=pml.summary, aes(ymin=efficiency, ymax=efficiency))+
+  geom_errorbar(data=pml.summary, aes(ymax=efficiency + pml.sd$sem, ymin=efficiency - pml.sd$sem),
+                width=0, size=1)+
+  theme_classic() + ylim(0.40, 0.8)+
+  scale_x_continuous(breaks=seq(from = 1, to = 25, by = 4))+
+  ylab("Complex I efficiency")+
+  theme(axis.text = element_text(size=35, colour="black"),
+        axis.text.x = element_text( vjust=.9),
+        plot.title = element_text(hjust=0.5, size=50),
+        axis.title.x = element_blank(),
+        axis.title.y.left = element_text(size = 40),
+        axis.ticks.length = unit(.5, "cm"),
+        axis.ticks = element_line(colour = "black", size=2),
+        axis.line = element_line(colour = "black", size=2),
+        legend.position = "none")
+ggsave(file="ccr new zt.pdf", width = 40, height = 20, units = "cm")
+
+
+#4C - pmt data arntl peak and trough
+pmt=read.table("peak and through march 2022.csv", header = TRUE, sep = ",", dec = ".")
+pmt
+
+ggplot(data=pmt, aes((CH7_TIME/60),graph)) +
+  geom_line(size=1, color="blue") + theme_classic() +
+  scale_x_continuous(expand = c(0,0),
+                     breaks =seq(from = 24, to = 168, by = 12), 
+                     labels = c("12","0", "12", "0","12", "0","12",
+                                "0", "12", "0","12", "0","12"),
+                     limits = c(12,168)) +
+  xlab("Days") + ylab("Arntl:Luciferase") + 
+  geom_vline(xintercept = c(24,36,48,60,72,84,96,108,120,132,144,156), linetype=2)  + 
+  geom_hline(yintercept = 0)+
+  ylim(-40000, 45000)+
+  theme(axis.text.x = element_text(size = 15), axis.text.y.left = element_text(size = 15),
+        axis.title.y= element_text(size = 15),axis.title.x= element_text(size = 15))
+ggsave(file="pmt march.pdf", width = 40, height = 25, units = "cm")
+
+#4D - complex I coupling efficiency at peak and trough
+bmalpt=read.table("bmal peak and trough.csv", header = TRUE, sep = ",", dec = ".")
+bmalpt
+bmalpt$efficiency <- (1-bmalpt$RCR.CI)
+bmalpt
+
+m=aggregate(bmalpt$efficiency, list(bmalpt$Phase), FUN=mean)
+m
+names(m)=c("Phase", "efficiency")
+m
+sd<-aggregate(bmalpt$efficiency, list(bmalpt$Phase), FUN=sd)
+sd$x<-as.numeric(sd$x)
+sd
+sd$sem<- sd$x/sqrt(4)
+sd
+
+ggplot(data=bmalpt, aes(Phase, efficiency, group=Phase,fill= Phase)) +
+  geom_point(size=5, aes(color=Phase))+ 
+  geom_crossbar(data=m, aes(ymin=efficiency, ymax=efficiency))+
+  geom_errorbar(data=m, aes(ymax=efficiency + sd$sem, ymin=efficiency - sd$sem),
+                width=0, size=1)+
+  theme_classic() + ylim(c(0.2,0.7)) + 
+  ylab("Complex I CCR")+
+  theme(axis.text = element_text(size=35, colour="black"),
+        axis.text.x = element_text( vjust=.9),
+        plot.title = element_text(hjust=0.5, size=50),
+        axis.title.x = element_blank(),
+        axis.title.y.left = element_text(size = 40),
+        axis.ticks.length = unit(.5, "cm"),
+        axis.ticks = element_line(colour = "black", size=2),
+        axis.line = element_line(colour = "black", size=2),
+        legend.position = "none") +
+  annotate("text", x=1.5, y=0.65, label="***", size=30)
+ggsave(file="ccr.pdf",width = 30, height = 20, units = "cm")
+
+anovaCI<-aov(efficiency~Phase, data = bmalpt)
+summary(anovaCI)
+TukeyHSD(anovaCI)
+
+
+
+
+ 
+ 
