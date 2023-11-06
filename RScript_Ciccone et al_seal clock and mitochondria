@@ -335,7 +335,7 @@ ggplot(carntl, aes(tcarntl,Mean, group=Probe)) +
  #Analysis done in Graphpad prism 8
  
 #3D - Arntl expression in kidney and liver
-tissue=read.table("qPCR tissue arntl_Chiara.csv", header = TRUE, sep = ",", dec = ".")
+tissue=read.table("qPCR tissue arntl.csv", header = TRUE, sep = ",", dec = ".")
 tissue
 
 tissue$ZT<- as.factor(tissue$ZT)
