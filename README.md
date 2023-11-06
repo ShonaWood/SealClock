@@ -4,7 +4,7 @@ R scripts for seal circadian clock
 - RScript_Ciccone et al_seal clock and mitochondria
 Rscritp used to analyse data and generate figures with RStudio
 
--bmal peak and through.csv
+- bmal peak and through.csv
 Respirometry data collected at baml (arntl) peak and trough
 
 - orojan ce norm. csv
