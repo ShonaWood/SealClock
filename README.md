@@ -5,11 +5,11 @@ R scripts for seal circadian clock
   
 Rscritp used to analyse data and generate figures with RStudio
 
-- bmal peak and through.csv
+- orojan ce norm. csv
   
 Respirometry data collected at baml (arntl) peak and trough
 
-- orojan ce norm. csv
+- bmal peak and through.csv
   
 Respirometry data collected under temperature cycle and normalised to routine (Ce) respiration
 
